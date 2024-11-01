@@ -47,7 +47,7 @@ func TestCachingParser_Parse(t *testing.T) {
 	jwksServer := httptest.NewServer(&idptest.JWKSHandler{})
 	defer jwksServer.Close()
 
-	issuerConfigServer := httptest.NewServer(&idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL})
+	issuerConfigServer := httptest.NewServer(makeOpenIDConfigurationHandler(jwksServer.URL))
 	defer issuerConfigServer.Close()
 
 	claims := &jwt.Claims{RegisteredClaims: jwtgo.RegisteredClaims{Issuer: testIss, ExpiresAt: jwtgo.NewNumericDate(time.Now().Add(time.Minute))}}
@@ -82,7 +82,7 @@ func TestCachingParser_CheckExpiration(t *testing.T) {
 	jwksServer := httptest.NewServer(&idptest.JWKSHandler{})
 	defer jwksServer.Close()
 
-	issuerConfigServer := httptest.NewServer(&idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL})
+	issuerConfigServer := httptest.NewServer(makeOpenIDConfigurationHandler(jwksServer.URL))
 	defer issuerConfigServer.Close()
 
 	claims := &jwt.Claims{RegisteredClaims: jwtgo.RegisteredClaims{Issuer: testIss, ExpiresAt: jwtgo.NewNumericDate(time.Now().Add(jwtTTL))}}

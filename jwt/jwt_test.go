@@ -27,7 +27,7 @@ func TestJWTParser_Parse(t *testing.T) {
 	jwksServer := httptest.NewServer(&idptest.JWKSHandler{})
 	defer jwksServer.Close()
 
-	issuerConfigServer := httptest.NewServer(&idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL})
+	issuerConfigServer := httptest.NewServer(makeOpenIDConfigurationHandler(jwksServer.URL))
 	defer issuerConfigServer.Close()
 
 	logger := log.NewDisabledLogger()
@@ -270,7 +270,7 @@ func TestJWTParser_Parse(t *testing.T) {
 		jwksServer2 := httptest.NewServer(&idptest.JWKSHandler{})
 		defer jwksServer2.Close()
 
-		openIDCfgHandler2 := &idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer2.URL}
+		openIDCfgHandler2 := makeOpenIDConfigurationHandler(jwksServer2.URL)
 		openIDCfgServer2 := httptest.NewServer(openIDCfgHandler2)
 		defer openIDCfgServer2.Close()
 
@@ -349,4 +349,8 @@ func TestParser_getURLForIssuer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func makeOpenIDConfigurationHandler(jwksURL string) *idptest.OpenIDConfigurationHandler {
+	return &idptest.OpenIDConfigurationHandler{JWKSEndpointProvider: func() string { return jwksURL }}
 }

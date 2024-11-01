@@ -26,7 +26,7 @@ func TestClient_GetRSAPublicKey(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
 		jwksServer := httptest.NewServer(&idptest.JWKSHandler{})
 		defer jwksServer.Close()
-		issuerConfigServer := httptest.NewServer(&idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL})
+		issuerConfigServer := httptest.NewServer(makeOpenIDConfigurationHandler(jwksServer.URL))
 		defer issuerConfigServer.Close()
 
 		client := jwks.NewClient()
@@ -39,7 +39,7 @@ func TestClient_GetRSAPublicKey(t *testing.T) {
 	t.Run("issuer openid configuration unavailable", func(t *testing.T) {
 		jwksServer := httptest.NewServer(&idptest.JWKSHandler{})
 		defer jwksServer.Close()
-		issuerConfigServer := httptest.NewServer(&idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL})
+		issuerConfigServer := httptest.NewServer(makeOpenIDConfigurationHandler(jwksServer.URL))
 		issuerConfigServer.Close() // Close the server immediately.
 
 		client := jwks.NewClient()
@@ -89,7 +89,7 @@ func TestClient_GetRSAPublicKey(t *testing.T) {
 	t.Run("jwks server unavailable", func(t *testing.T) {
 		jwksServer := httptest.NewServer(&idptest.JWKSHandler{})
 		jwksServer.Close() // Close the server immediately.
-		issuerConfigServer := httptest.NewServer(&idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL})
+		issuerConfigServer := httptest.NewServer(makeOpenIDConfigurationHandler(jwksServer.URL))
 		defer issuerConfigServer.Close()
 
 		client := jwks.NewClient()
@@ -108,7 +108,7 @@ func TestClient_GetRSAPublicKey(t *testing.T) {
 			rw.WriteHeader(http.StatusInternalServerError)
 		}))
 		defer jwksServer.Close()
-		issuerConfigServer := httptest.NewServer(&idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL})
+		issuerConfigServer := httptest.NewServer(makeOpenIDConfigurationHandler(jwksServer.URL))
 		defer issuerConfigServer.Close()
 
 		client := jwks.NewClient()
@@ -125,7 +125,7 @@ func TestClient_GetRSAPublicKey(t *testing.T) {
 	t.Run("jwk not found", func(t *testing.T) {
 		jwksServer := httptest.NewServer(&idptest.JWKSHandler{})
 		defer jwksServer.Close()
-		issuerConfigServer := httptest.NewServer(&idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL})
+		issuerConfigServer := httptest.NewServer(makeOpenIDConfigurationHandler(jwksServer.URL))
 		defer issuerConfigServer.Close()
 
 		const unknownKeyID = "77777777-7777-7777-7777-777777777777"
@@ -143,7 +143,7 @@ func TestClient_GetRSAPublicKey(t *testing.T) {
 	t.Run("context canceled", func(t *testing.T) {
 		jwksServer := httptest.NewServer(&idptest.JWKSHandler{})
 		defer jwksServer.Close()
-		issuerConfigServer := httptest.NewServer(&idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL})
+		issuerConfigServer := httptest.NewServer(makeOpenIDConfigurationHandler(jwksServer.URL))
 		defer issuerConfigServer.Close()
 
 		client := jwks.NewClient()
@@ -164,4 +164,8 @@ func requireLocalhostConnRefusedError(t *testing.T, err error) {
 	require.True(t,
 		strings.Contains(err.Error(), "dial tcp 127.0.0.1:") && strings.Contains(err.Error(), "refused"),
 		`Error %q doesn't contain "dial tcp 127.0.0.1 ... refused"`, err)
+}
+
+func makeOpenIDConfigurationHandler(jwksURL string) *idptest.OpenIDConfigurationHandler {
+	return &idptest.OpenIDConfigurationHandler{JWKSEndpointProvider: func() string { return jwksURL }}
 }

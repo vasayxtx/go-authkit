@@ -26,7 +26,7 @@ func TestCachingClient_GetRSAPublicKey(t *testing.T) {
 		jwksHandler := &idptest.JWKSHandler{}
 		jwksServer := httptest.NewServer(jwksHandler)
 		defer jwksServer.Close()
-		issuerConfigHandler := &idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL}
+		issuerConfigHandler := makeOpenIDConfigurationHandler(jwksServer.URL)
 		issuerConfigServer := httptest.NewServer(issuerConfigHandler)
 		defer issuerConfigServer.Close()
 
@@ -65,7 +65,7 @@ func TestCachingClient_GetRSAPublicKey(t *testing.T) {
 		jwksHandler := &idptest.JWKSHandler{}
 		jwksServer := httptest.NewServer(jwksHandler)
 		defer jwksServer.Close()
-		issuerConfigHandler := &idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL}
+		issuerConfigHandler := makeOpenIDConfigurationHandler(jwksServer.URL)
 		issuerConfigServer := httptest.NewServer(issuerConfigHandler)
 		defer issuerConfigServer.Close()
 

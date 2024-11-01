@@ -11,17 +11,14 @@ import (
 	"fmt"
 	"net/http"
 	"sync/atomic"
-
-	"github.com/acronis/go-authkit/internal/idputil"
 )
 
 // OpenIDConfigurationHandler is an HTTP handler that responds token's issuer OpenID configuration.
 type OpenIDConfigurationHandler struct {
-	servedCount              atomic.Uint64
-	BaseURLFunc              func() string // for cases when 'host:port' of providers' addresses to be determined during runtime
-	JWKSURL                  string
-	TokenEndpointURL         string
-	IntrospectionEndpointURL string
+	servedCount                   atomic.Uint64
+	JWKSEndpointProvider          func() string
+	TokenEndpointProvider         func() string
+	IntrospectionEndpointProvider func() string
 }
 
 func (h *OpenIDConfigurationHandler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
@@ -32,10 +29,15 @@ func (h *OpenIDConfigurationHandler) ServeHTTP(rw http.ResponseWriter, r *http.R
 
 	h.servedCount.Add(1)
 
-	openIDCfg := idputil.OpenIDConfiguration{
-		TokenURL:              h.makeEndpointURL(h.TokenEndpointURL, TokenIntrospectionEndpointPath),
-		IntrospectionEndpoint: h.makeEndpointURL(h.IntrospectionEndpointURL, TokenIntrospectionEndpointPath),
-		JWKSURI:               h.makeEndpointURL(h.JWKSURL, JWKSEndpointPath),
+	openIDCfg := OpenIDConfigurationResponse{}
+	if h.TokenEndpointProvider != nil {
+		openIDCfg.TokenEndpoint = h.TokenEndpointProvider()
+	}
+	if h.IntrospectionEndpointProvider != nil {
+		openIDCfg.IntrospectionEndpoint = h.IntrospectionEndpointProvider()
+	}
+	if h.JWKSEndpointProvider != nil {
+		openIDCfg.JWKSURI = h.JWKSEndpointProvider()
 	}
 	rw.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(rw).Encode(openIDCfg); err != nil {
@@ -44,17 +46,14 @@ func (h *OpenIDConfigurationHandler) ServeHTTP(rw http.ResponseWriter, r *http.R
 	}
 }
 
-func (h *OpenIDConfigurationHandler) makeEndpointURL(endpointURL string, defaultPath string) string {
-	if endpointURL == "" {
-		endpointURL = defaultPath
-	}
-	if h.BaseURLFunc != nil {
-		endpointURL = h.BaseURLFunc() + endpointURL
-	}
-	return endpointURL
-}
-
 // ServedCount returns the number of times the handler has been served.
 func (h *OpenIDConfigurationHandler) ServedCount() uint64 {
 	return h.servedCount.Load()
+}
+
+// OpenIDConfigurationResponse is a response for .well-known/openid-configuration endpoint.
+type OpenIDConfigurationResponse struct {
+	TokenEndpoint         string `json:"token_endpoint"`
+	IntrospectionEndpoint string `json:"introspection_endpoint"`
+	JWKSURI               string `json:"jwks_uri"`
 }

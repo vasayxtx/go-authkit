@@ -26,7 +26,8 @@ func TestMakeTokenStringWithHeader(t *testing.T) {
 	jwksServer := httptest.NewServer(&JWKSHandler{})
 	defer jwksServer.Close()
 
-	issuerConfigServer := httptest.NewServer(&OpenIDConfigurationHandler{JWKSURL: jwksServer.URL})
+	issuerConfigServer := httptest.NewServer(&OpenIDConfigurationHandler{
+		JWKSEndpointProvider: func() string { return jwksServer.URL }})
 	defer issuerConfigServer.Close()
 
 	logger := log.NewDisabledLogger()
