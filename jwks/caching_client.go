@@ -15,7 +15,10 @@ import (
 	"github.com/acronis/go-appkit/lrucache"
 )
 
-const DefaultCacheUpdateMinInterval = time.Minute * 1
+const (
+	DefaultCacheUpdateMinInterval = time.Minute * 1
+	DefaultCacheTTL               = time.Hour * 1
+)
 
 // CachingClientOpts contains options for CachingClient.
 type CachingClientOpts struct {
@@ -23,6 +26,10 @@ type CachingClientOpts struct {
 
 	// CacheUpdateMinInterval is a minimal interval between cache updates for the same issuer.
 	CacheUpdateMinInterval time.Duration
+
+	// CacheTTL is the duration after which cached keys expire and must be refreshed.
+	// This prevents using revoked keys indefinitely. Default is 1 hour.
+	CacheTTL time.Duration
 }
 
 // CachingClient is a Client for getting keys from remote JWKS with a caching mechanism.
@@ -31,12 +38,14 @@ type CachingClient struct {
 	rawClient              *Client
 	issuerCache            map[string]issuerCacheEntry
 	cacheUpdateMinInterval time.Duration
+	cacheTTL               time.Duration
 }
 
 const missingKeysCacheSize = 100
 
 type issuerCacheEntry struct {
 	updatedAt   time.Time
+	expiresAt   time.Time
 	keys        map[string]interface{}
 	missingKeys *lrucache.LRUCache[string, time.Time]
 }
@@ -51,10 +60,14 @@ func NewCachingClientWithOpts(opts CachingClientOpts) *CachingClient {
 	if opts.CacheUpdateMinInterval == 0 {
 		opts.CacheUpdateMinInterval = DefaultCacheUpdateMinInterval
 	}
+	if opts.CacheTTL == 0 {
+		opts.CacheTTL = DefaultCacheTTL
+	}
 	return &CachingClient{
 		rawClient:              NewClientWithOpts(opts.ClientOpts),
 		issuerCache:            make(map[string]issuerCacheEntry),
 		cacheUpdateMinInterval: opts.CacheUpdateMinInterval,
+		cacheTTL:               opts.CacheTTL,
 	}
 }
 
@@ -84,7 +97,9 @@ func (cc *CachingClient) InvalidateCacheIfNeeded(ctx context.Context, issuerURL 
 	var missingKeys *lrucache.LRUCache[string, time.Time]
 	issCache, found := cc.issuerCache[issuerURL]
 	if found {
-		if time.Since(issCache.updatedAt) < cc.cacheUpdateMinInterval {
+		now := time.Now()
+		// Skip update if cache hasn't expired and update interval hasn't passed
+		if now.Before(issCache.expiresAt) && time.Since(issCache.updatedAt) < cc.cacheUpdateMinInterval {
 			return nil
 		}
 		missingKeys = issCache.missingKeys
@@ -99,8 +114,10 @@ func (cc *CachingClient) InvalidateCacheIfNeeded(ctx context.Context, issuerURL 
 	if err != nil {
 		return fmt.Errorf("get rsa public keys for issuer %q: %w", issuerURL, err)
 	}
+	now := time.Now()
 	cc.issuerCache[issuerURL] = issuerCacheEntry{
-		updatedAt:   time.Now(),
+		updatedAt:   now,
+		expiresAt:   now.Add(cc.cacheTTL),
 		keys:        pubKeys,
 		missingKeys: missingKeys,
 	}
@@ -115,6 +132,10 @@ func (cc *CachingClient) getPubKeyFromCache(
 
 	issCache, issFound := cc.issuerCache[issuerURL]
 	if !issFound {
+		return nil, false, true
+	}
+	// Check if the cache entry has expired
+	if time.Now().After(issCache.expiresAt) {
 		return nil, false, true
 	}
 	if pubKey, found = issCache.keys[keyID]; found {
@@ -135,12 +156,15 @@ func (cc *CachingClient) getPubKeyFromCacheAndInvalidate(
 
 	var missingKeys *lrucache.LRUCache[string, time.Time]
 	if issCache, issFound := cc.issuerCache[issuerURL]; issFound {
-		if pubKey, found = issCache.keys[keyID]; found {
-			return pubKey, true, nil
-		}
-		missedAt, miss := issCache.missingKeys.Get(keyID)
-		if miss && time.Since(missedAt) < cc.cacheUpdateMinInterval {
-			return nil, false, nil
+		// Check if cache has expired - if not, and key is found, return it
+		if time.Now().Before(issCache.expiresAt) {
+			if pubKey, found = issCache.keys[keyID]; found {
+				return pubKey, true, nil
+			}
+			missedAt, miss := issCache.missingKeys.Get(keyID)
+			if miss && time.Since(missedAt) < cc.cacheUpdateMinInterval {
+				return nil, false, nil
+			}
 		}
 		missingKeys = issCache.missingKeys
 	} else {
@@ -158,8 +182,10 @@ func (cc *CachingClient) getPubKeyFromCacheAndInvalidate(
 	if !found {
 		missingKeys.Add(keyID, time.Now())
 	}
+	now := time.Now()
 	cc.issuerCache[issuerURL] = issuerCacheEntry{
-		updatedAt:   time.Now(),
+		updatedAt:   now,
+		expiresAt:   now.Add(cc.cacheTTL),
 		keys:        pubKeys,
 		missingKeys: missingKeys,
 	}
