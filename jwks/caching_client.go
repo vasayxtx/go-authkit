@@ -16,6 +16,7 @@ import (
 )
 
 const DefaultCacheUpdateMinInterval = time.Minute * 1
+const DefaultCacheTTL = time.Hour * 1
 
 // CachingClientOpts contains options for CachingClient.
 type CachingClientOpts struct {
@@ -23,6 +24,12 @@ type CachingClientOpts struct {
 
 	// CacheUpdateMinInterval is a minimal interval between cache updates for the same issuer.
 	CacheUpdateMinInterval time.Duration
+
+	// CacheTTL is the time-to-live duration for cached keys.
+	// After this duration, cached keys will be considered expired and will be refetched.
+	// This is important for security to ensure revoked keys don't remain cached indefinitely.
+	// Default is 1 hour.
+	CacheTTL time.Duration
 }
 
 // CachingClient is a Client for getting keys from remote JWKS with a caching mechanism.
@@ -31,6 +38,7 @@ type CachingClient struct {
 	rawClient              *Client
 	issuerCache            map[string]issuerCacheEntry
 	cacheUpdateMinInterval time.Duration
+	cacheTTL               time.Duration
 }
 
 const missingKeysCacheSize = 100
@@ -51,10 +59,14 @@ func NewCachingClientWithOpts(opts CachingClientOpts) *CachingClient {
 	if opts.CacheUpdateMinInterval == 0 {
 		opts.CacheUpdateMinInterval = DefaultCacheUpdateMinInterval
 	}
+	if opts.CacheTTL == 0 {
+		opts.CacheTTL = DefaultCacheTTL
+	}
 	return &CachingClient{
 		rawClient:              NewClientWithOpts(opts.ClientOpts),
 		issuerCache:            make(map[string]issuerCacheEntry),
 		cacheUpdateMinInterval: opts.CacheUpdateMinInterval,
+		cacheTTL:               opts.CacheTTL,
 	}
 }
 
@@ -84,7 +96,9 @@ func (cc *CachingClient) InvalidateCacheIfNeeded(ctx context.Context, issuerURL 
 	var missingKeys *lrucache.LRUCache[string, time.Time]
 	issCache, found := cc.issuerCache[issuerURL]
 	if found {
-		if time.Since(issCache.updatedAt) < cc.cacheUpdateMinInterval {
+		cacheAge := time.Since(issCache.updatedAt)
+		// If cache hasn't exceeded TTL and we're within the minimum update interval, don't update
+		if cacheAge <= cc.cacheTTL && cacheAge < cc.cacheUpdateMinInterval {
 			return nil
 		}
 		missingKeys = issCache.missingKeys
@@ -117,6 +131,10 @@ func (cc *CachingClient) getPubKeyFromCache(
 	if !issFound {
 		return nil, false, true
 	}
+	// Check if the cache entry has exceeded TTL
+	if time.Since(issCache.updatedAt) > cc.cacheTTL {
+		return nil, false, true
+	}
 	if pubKey, found = issCache.keys[keyID]; found {
 		return
 	}
@@ -135,12 +153,16 @@ func (cc *CachingClient) getPubKeyFromCacheAndInvalidate(
 
 	var missingKeys *lrucache.LRUCache[string, time.Time]
 	if issCache, issFound := cc.issuerCache[issuerURL]; issFound {
-		if pubKey, found = issCache.keys[keyID]; found {
-			return pubKey, true, nil
-		}
-		missedAt, miss := issCache.missingKeys.Get(keyID)
-		if miss && time.Since(missedAt) < cc.cacheUpdateMinInterval {
-			return nil, false, nil
+		cacheAge := time.Since(issCache.updatedAt)
+		// If cache hasn't exceeded TTL, try to use it
+		if cacheAge <= cc.cacheTTL {
+			if pubKey, found = issCache.keys[keyID]; found {
+				return pubKey, true, nil
+			}
+			missedAt, miss := issCache.missingKeys.Get(keyID)
+			if miss && time.Since(missedAt) < cc.cacheUpdateMinInterval {
+				return nil, false, nil
+			}
 		}
 		missingKeys = issCache.missingKeys
 	} else {
