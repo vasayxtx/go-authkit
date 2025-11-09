@@ -61,6 +61,40 @@ func TestCachingClient_GetRSAPublicKey(t *testing.T) {
 		require.EqualValues(t, 1, jwksHandler.ServedCount())
 	})
 
+	t.Run("cache ttl triggers refresh", func(t *testing.T) {
+		jwksHandler := &idptest.JWKSHandler{}
+		jwksServer := httptest.NewServer(jwksHandler)
+		defer jwksServer.Close()
+		issuerConfigHandler := &idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL}
+		issuerConfigServer := httptest.NewServer(issuerConfigHandler)
+		defer issuerConfigServer.Close()
+
+		// TTL shorter than min interval to ensure TTL forces refresh.
+		const ttl = 100 * time.Millisecond
+		const minInterval = 10 * time.Second
+		cachingClient := jwks.NewCachingClientWithOpts(jwks.CachingClientOpts{
+			CacheTTL:               ttl,
+			CacheUpdateMinInterval: minInterval,
+		})
+
+		// First fetch.
+		pubKey1, err := cachingClient.GetRSAPublicKey(context.Background(), issuerConfigServer.URL, idptest.TestKeyID)
+		require.NoError(t, err)
+		require.NotNil(t, pubKey1)
+		require.EqualValues(t, 1, issuerConfigHandler.ServedCount())
+		require.EqualValues(t, 1, jwksHandler.ServedCount())
+
+		// Wait for TTL to expire but less than minInterval.
+		time.Sleep(ttl + 50*time.Millisecond)
+
+		pubKey2, err := cachingClient.GetRSAPublicKey(context.Background(), issuerConfigServer.URL, idptest.TestKeyID)
+		require.NoError(t, err)
+		require.NotNil(t, pubKey2)
+		// Because TTL expired, should have refreshed despite min interval not passing.
+		require.EqualValues(t, 2, issuerConfigHandler.ServedCount())
+		require.EqualValues(t, 2, jwksHandler.ServedCount())
+	})
+
 	t.Run("jwk not found", func(t *testing.T) {
 		jwksHandler := &idptest.JWKSHandler{}
 		jwksServer := httptest.NewServer(jwksHandler)
