@@ -103,4 +103,46 @@ func TestCachingClient_GetRSAPublicKey(t *testing.T) {
 		require.EqualValues(t, 2, issuerConfigHandler.ServedCount())
 		require.EqualValues(t, 2, jwksHandler.ServedCount())
 	})
+
+	t.Run("ttl expiration", func(t *testing.T) {
+		jwksHandler := &idptest.JWKSHandler{}
+		jwksServer := httptest.NewServer(jwksHandler)
+		defer jwksServer.Close()
+		issuerConfigHandler := &idptest.OpenIDConfigurationHandler{JWKSURL: jwksServer.URL}
+		issuerConfigServer := httptest.NewServer(issuerConfigHandler)
+		defer issuerConfigServer.Close()
+
+		const cacheTTL = time.Second * 2
+		cachingClient := jwks.NewCachingClientWithOpts(jwks.CachingClientOpts{
+			CacheUpdateMinInterval: time.Millisecond * 100,
+			CacheTTL:               cacheTTL,
+		})
+
+		// First request should fetch from server
+		pubKey1, err := cachingClient.GetRSAPublicKey(context.Background(), issuerConfigServer.URL, idptest.TestKeyID)
+		require.NoError(t, err)
+		require.NotNil(t, pubKey1)
+		require.IsType(t, &rsa.PublicKey{}, pubKey1)
+		require.EqualValues(t, 1, issuerConfigHandler.ServedCount())
+		require.EqualValues(t, 1, jwksHandler.ServedCount())
+
+		// Second request (within TTL) should use cache
+		pubKey2, err := cachingClient.GetRSAPublicKey(context.Background(), issuerConfigServer.URL, idptest.TestKeyID)
+		require.NoError(t, err)
+		require.NotNil(t, pubKey2)
+		require.Equal(t, pubKey1, pubKey2)
+		require.EqualValues(t, 1, issuerConfigHandler.ServedCount())
+		require.EqualValues(t, 1, jwksHandler.ServedCount())
+
+		// Wait for TTL to expire
+		time.Sleep(cacheTTL + time.Millisecond*500)
+
+		// Third request (after TTL) should refetch from server
+		pubKey3, err := cachingClient.GetRSAPublicKey(context.Background(), issuerConfigServer.URL, idptest.TestKeyID)
+		require.NoError(t, err)
+		require.NotNil(t, pubKey3)
+		require.IsType(t, &rsa.PublicKey{}, pubKey3)
+		require.EqualValues(t, 2, issuerConfigHandler.ServedCount())
+		require.EqualValues(t, 2, jwksHandler.ServedCount())
+	})
 }
