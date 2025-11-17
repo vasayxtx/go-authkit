@@ -16,6 +16,7 @@ import (
 )
 
 const DefaultCacheUpdateMinInterval = time.Minute * 1
+const DefaultCacheTTL = time.Hour * 1
 
 // CachingClientOpts contains options for CachingClient.
 type CachingClientOpts struct {
@@ -23,6 +24,12 @@ type CachingClientOpts struct {
 
 	// CacheUpdateMinInterval is a minimal interval between cache updates for the same issuer.
 	CacheUpdateMinInterval time.Duration
+
+	// CacheTTL is the time-to-live for cached public keys.
+	// After this duration, cached keys will be considered expired and will be refreshed.
+	// This is a security feature to ensure revoked keys don't remain cached indefinitely.
+	// Default is 1 hour.
+	CacheTTL time.Duration
 }
 
 // CachingClient is a Client for getting keys from remote JWKS with a caching mechanism.
@@ -31,6 +38,7 @@ type CachingClient struct {
 	rawClient              *Client
 	issuerCache            map[string]issuerCacheEntry
 	cacheUpdateMinInterval time.Duration
+	cacheTTL               time.Duration
 }
 
 const missingKeysCacheSize = 100
@@ -51,10 +59,14 @@ func NewCachingClientWithOpts(opts CachingClientOpts) *CachingClient {
 	if opts.CacheUpdateMinInterval == 0 {
 		opts.CacheUpdateMinInterval = DefaultCacheUpdateMinInterval
 	}
+	if opts.CacheTTL == 0 {
+		opts.CacheTTL = DefaultCacheTTL
+	}
 	return &CachingClient{
 		rawClient:              NewClientWithOpts(opts.ClientOpts),
 		issuerCache:            make(map[string]issuerCacheEntry),
 		cacheUpdateMinInterval: opts.CacheUpdateMinInterval,
+		cacheTTL:               opts.CacheTTL,
 	}
 }
 
@@ -117,6 +129,12 @@ func (cc *CachingClient) getPubKeyFromCache(
 	if !issFound {
 		return nil, false, true
 	}
+	
+	// Check if the cache entry has expired based on TTL
+	if time.Since(issCache.updatedAt) > cc.cacheTTL {
+		return nil, false, true
+	}
+	
 	if pubKey, found = issCache.keys[keyID]; found {
 		return
 	}
@@ -135,12 +153,17 @@ func (cc *CachingClient) getPubKeyFromCacheAndInvalidate(
 
 	var missingKeys *lrucache.LRUCache[string, time.Time]
 	if issCache, issFound := cc.issuerCache[issuerURL]; issFound {
-		if pubKey, found = issCache.keys[keyID]; found {
-			return pubKey, true, nil
-		}
-		missedAt, miss := issCache.missingKeys.Get(keyID)
-		if miss && time.Since(missedAt) < cc.cacheUpdateMinInterval {
-			return nil, false, nil
+		// Check if cache has expired based on TTL
+		cacheExpired := time.Since(issCache.updatedAt) > cc.cacheTTL
+		
+		if !cacheExpired {
+			if pubKey, found = issCache.keys[keyID]; found {
+				return pubKey, true, nil
+			}
+			missedAt, miss := issCache.missingKeys.Get(keyID)
+			if miss && time.Since(missedAt) < cc.cacheUpdateMinInterval {
+				return nil, false, nil
+			}
 		}
 		missingKeys = issCache.missingKeys
 	} else {
