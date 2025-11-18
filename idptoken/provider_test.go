@@ -98,7 +98,7 @@ func TestProviderWithCache(t *testing.T) {
 		credentials := []idptoken.Source{
 			{
 				ClientID:     testClientID,
-				ClientSecret: "DAGztV5L2hMZyECzer6SXS",
+				ClientSecret: uuid.NewString(),
 				URL:          server.URL(),
 			},
 		}
@@ -128,7 +128,7 @@ func TestProviderWithCache(t *testing.T) {
 		credentials := []idptoken.Source{
 			{
 				ClientID:     testClientID,
-				ClientSecret: "DAGztV5L2hMZyECzer6SXS",
+				ClientSecret: uuid.NewString(),
 				URL:          server.URL(),
 			},
 		}
@@ -167,7 +167,7 @@ func TestProviderWithCache(t *testing.T) {
 		credentials := []idptoken.Source{
 			{
 				ClientID:     testClientID,
-				ClientSecret: "DAGztV5L2hMZyECzer6SXS",
+				ClientSecret: uuid.NewString(),
 				URL:          server.URL(),
 			},
 		}
@@ -200,7 +200,7 @@ func TestProviderWithCache(t *testing.T) {
 		credentials := []idptoken.Source{
 			{
 				ClientID:     testClientID,
-				ClientSecret: "DAGztV5L2hMZyECzer6SXS",
+				ClientSecret: uuid.NewString(),
 				URL:          server.URL(),
 			},
 		}
@@ -232,12 +232,12 @@ func TestProviderWithCache(t *testing.T) {
 		credentials := []idptoken.Source{
 			{
 				ClientID:     testClientID,
-				ClientSecret: "DAGztV5L2hMZyECzer6SXS",
+				ClientSecret: uuid.NewString(),
 				URL:          server.URL(),
 			},
 			{
 				ClientID:     testClientID,
-				ClientSecret: "DAGztV5L2hMZyECzer6SXS",
+				ClientSecret: uuid.NewString(),
 				URL:          server.URL() + "/weird",
 			},
 		}
@@ -272,7 +272,7 @@ func TestProviderWithCache(t *testing.T) {
 		credentials := []idptoken.Source{
 			{
 				ClientID:     testClientID,
-				ClientSecret: "DAGztV5L2hMZyECzer6SXS",
+				ClientSecret: uuid.NewString(),
 				URL:          server.URL(),
 			},
 		}
@@ -296,25 +296,23 @@ func TestProviderWithCache(t *testing.T) {
 	})
 
 	t.Run("multiple sources", func(t *testing.T) {
-		server := idptest.NewHTTPServer(
-			idptest.WithHTTPClaimsProvider(&claimsProviderWithExpiration{ExpTime: 2 * time.Second}),
+		server1 := idptest.NewHTTPServer(
+			idptest.WithHTTPClaimsProvider(&claimsProviderWithExpiration{ExpTime: 10 * time.Second}),
 		)
-		require.NoError(t, server.StartAndWaitForReady(time.Second))
-		defer func() { _ = server.Shutdown(context.Background()) }()
+		require.NoError(t, server1.StartAndWaitForReady(time.Second))
+		defer func() { _ = server1.Shutdown(context.Background()) }()
 
 		server2 := idptest.NewHTTPServer(
-			idptest.WithHTTPClaimsProvider(&claimsProviderWithExpiration{ExpTime: 2 * time.Second}),
-			idptest.WithHTTPAddress(":8082"),
+			idptest.WithHTTPClaimsProvider(&claimsProviderWithExpiration{ExpTime: 10 * time.Second}),
 		)
 		require.NoError(t, server2.StartAndWaitForReady(time.Second))
 		defer func() { _ = server2.Shutdown(context.Background()) }()
-
 		credentials := []idptoken.Source{
 			{
-				ClientID: testClientID, ClientSecret: "DAGztV5L2hMZyECzer6SXS", URL: server.URL(),
+				ClientID: testClientID, ClientSecret: uuid.NewString(), URL: server1.URL(),
 			},
 			{
-				ClientID: testClientID, ClientSecret: "DAGztV5L2hMZyECzer6SXs", URL: server2.URL(),
+				ClientID: testClientID, ClientSecret: uuid.NewString(), URL: server2.URL(),
 			},
 		}
 		opts := idptoken.ProviderOpts{
@@ -324,7 +322,7 @@ func TestProviderWithCache(t *testing.T) {
 		provider := idptoken.NewMultiSourceProviderWithOpts(credentials, opts)
 		go provider.RefreshTokensPeriodically(context.Background())
 		_, tokenErr := provider.GetToken(
-			context.Background(), testClientID, server.URL(), "tenants:read",
+			context.Background(), testClientID, server1.URL(), "tenants:read",
 		)
 		require.NoError(t, tokenErr)
 
@@ -343,17 +341,16 @@ func TestProviderWithCache(t *testing.T) {
 
 		server2 := idptest.NewHTTPServer(
 			idptest.WithHTTPClaimsProvider(&claimsProviderWithExpiration{ExpTime: 2 * time.Second}),
-			idptest.WithHTTPAddress(":8082"),
 		)
 		require.NoError(t, server2.StartAndWaitForReady(time.Second))
 		defer func() { _ = server2.Shutdown(context.Background()) }()
 
 		credentials := []idptoken.Source{
 			{
-				ClientID: testClientID, ClientSecret: "DAGztV5L2hMZyECzer6SXS", URL: server.URL(),
+				ClientID: testClientID, ClientSecret: uuid.NewString(), URL: server.URL(),
 			},
 			{
-				ClientID: testClientID, ClientSecret: "DAGztV5L2hMZyECzer6SXs", URL: server2.URL(),
+				ClientID: testClientID, ClientSecret: uuid.NewString(), URL: server2.URL(),
 			},
 		}
 		opts := idptoken.ProviderOpts{
@@ -377,7 +374,7 @@ func TestProviderWithCache(t *testing.T) {
 		defer func() { _ = server.Shutdown(context.Background()) }()
 
 		credentials := idptoken.Source{
-			ClientID: testClientID, ClientSecret: "DAGztV5L2hMZyECzer6SXS", URL: server.URL(),
+			ClientID: testClientID, ClientSecret: uuid.NewString(), URL: server.URL(),
 		}
 		opts := idptoken.ProviderOpts{
 			Logger:           logger,
@@ -397,7 +394,7 @@ func TestProviderWithCache(t *testing.T) {
 		defer func() { _ = server.Shutdown(context.Background()) }()
 
 		credentials := idptoken.Source{
-			ClientID: testClientID, ClientSecret: "DAGztV5L2hMZyECzer6SXS", URL: server.URL(),
+			ClientID: testClientID, ClientSecret: uuid.NewString(), URL: server.URL(),
 		}
 		provider := idptoken.NewMultiSourceProviderWithOpts(nil, idptoken.ProviderOpts{HTTPClient: httpClient})
 		go provider.RefreshTokensPeriodically(context.Background())
@@ -416,7 +413,7 @@ func TestProviderWithCache(t *testing.T) {
 		defer func() { _ = server.Shutdown(context.Background()) }()
 
 		credentials := idptoken.Source{
-			ClientID: testClientID, ClientSecret: "DAGztV5L2hMZyECzer6SXS", URL: server.URL(),
+			ClientID: testClientID, ClientSecret: uuid.NewString(), URL: server.URL(),
 		}
 		tokenCache := idptoken.NewInMemoryTokenCache()
 		provider := idptoken.NewMultiSourceProviderWithOpts(nil, idptoken.ProviderOpts{
@@ -739,7 +736,6 @@ func TestProviderConcurrency(t *testing.T) {
 
 		server2 := idptest.NewHTTPServer(
 			idptest.WithHTTPClaimsProvider(&claimsProviderWithExpiration{ExpTime: 10 * time.Second}),
-			idptest.WithHTTPAddress(":8082"),
 		)
 		require.NoError(t, server2.StartAndWaitForReady(time.Second))
 		defer func() { _ = server2.Shutdown(context.Background()) }()
